@@ -1,0 +1,10 @@
+node_modules
+.tmp-smoke
+.git
+.gitignore
+.env*
+!.env.example
+sqlite.db*
+data
+uploads
+*.log

@@ -1,0 +1,31 @@
+services:
+  internship:
+    build: .
+    container_name: tmss-internship
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+    ports:
+      - "127.0.0.1:3010:3000"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - coolify
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.routers.tmss-internship-http.rule=Host(`internship.tmsoftware.online`)"
+      - "traefik.http.routers.tmss-internship-http.entrypoints=http"
+      - "traefik.http.routers.tmss-internship-http.middlewares=tmss-internship-redirect"
+      - "traefik.http.middlewares.tmss-internship-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.tmss-internship.rule=Host(`internship.tmsoftware.online`)"
+      - "traefik.http.routers.tmss-internship.entrypoints=https"
+      - "traefik.http.routers.tmss-internship.tls=true"
+      - "traefik.http.routers.tmss-internship.tls.certresolver=letsencrypt"
+      - "traefik.http.services.tmss-internship.loadbalancer.server.port=3000"
+
+networks:
+  coolify:
+    external: true
