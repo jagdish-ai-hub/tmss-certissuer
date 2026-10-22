@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent, DragEvent, useRef, ChangeEvent } from 'react';
+import { upload } from '@vercel/blob/client';
 import { 
   Settings, 
   CheckCircle, 
@@ -556,34 +557,26 @@ export default function App() {
     setIsDragging(false);
   };
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
     if (file.type !== "application/pdf") {
       alert("Only PDF files are allowed!");
       return;
     }
 
     setIsUploading(true);
-    const uploadData = new FormData();
-    uploadData.append("file", file);
-
-    fetch("/api/upload", {
-      method: "POST",
-      body: uploadData
-    })
-      .then(res => {
-        if (!res.ok) throw new Error("Upload failed");
-        return res.json();
-      })
-      .then(data => {
-        setFormData(prev => ({ ...prev, pdfUrl: data.fileUrl }));
-        setUploadedFileName(file.name);
-        setIsUploading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        alert("Failed to upload file. Please try again.");
-        setIsUploading(false);
+    try {
+      const blob = await upload(file.name, file, {
+        access: "public",
+        handleUploadUrl: "/api/blob-upload"
       });
+      setFormData(prev => ({ ...prev, pdfUrl: blob.url }));
+      setUploadedFileName(file.name);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload file. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {

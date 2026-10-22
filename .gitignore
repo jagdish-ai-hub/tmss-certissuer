@@ -14,3 +14,7 @@ uploads/
 settings.json
 certificates.json
 .tmp-smoke/
+public/
+local.db
+local.db-shm
+local.db-wal
