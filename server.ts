@@ -110,6 +110,8 @@ const defaultSettings: Settings = {
   phase3Desc: "Build end-to-end using React, Node.js, and modern AI tools like Google AI Studio. Strong apps may be published on the Google Play Store."
 };
 
+let initError: string | null = null;
+
 const ready = (async () => {
   if (configError) return; // nothing to initialise; the guard middleware reports it
   await db.execute(`
@@ -163,7 +165,13 @@ const ready = (async () => {
       args: ["TM-2026-001", "Amit Sharma", "2026-07-01", "AI Education Assistant"]
     });
   }
-})();
+})().catch((error: any) => {
+  // Never leave this promise unhandled: a rejection during module
+  // initialisation kills the serverless function before any route can reply,
+  // which the browser sees as an unparseable "A server error has occurred".
+  initError = `Database initialisation failed: ${error?.message ?? error}`;
+  console.error("Database initialisation failed:", error);
+});
 
 async function readSubmissions(): Promise<Submission[]> {
   const result = await db.execute(`
@@ -239,11 +247,20 @@ async function readCertificates(): Promise<Certificate[]> {
 }
 
 app.use((req, res, next) => {
+  // /api/health must always answer so misconfiguration is visible from outside.
+  if (req.path === "/api/health") return next();
+
   if (configError) {
     return res.status(500).json({
       error: "Server misconfigured",
       detail: configError,
       fix: "Set the environment variables in Vercel and redeploy."
+    });
+  }
+  if (initError) {
+    return res.status(500).json({
+      error: "Database unavailable",
+      detail: initError
     });
   }
   ready.then(() => next()).catch(next);
@@ -252,8 +269,29 @@ app.use(express.json({ limit: "2mb" }));
 
 // API Routes
 // 1. Get health
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
+app.get("/api/health", async (req, res) => {
+  // `ready` always resolves (it has a .catch attached at module load), so this
+  // waits for initialisation to finish and then reports the captured error.
+  await ready;
+
+  const problem = configError ?? initError;
+
+  let database = "file:local.db";
+  try {
+    if (TURSO_URL) {
+      database = new URL(TURSO_URL.replace(/^libsql:\/\//, "https://")).host;
+    }
+  } catch {
+    database = "invalid-url";
+  }
+
+  res.status(problem ? 500 : 200).json({
+    status: problem ? "error" : "ok",
+    onVercel: Boolean(process.env.VERCEL),
+    database,
+    hasAuthToken: Boolean(TURSO_TOKEN),
+    error: problem ?? undefined
+  });
 });
 
 // 2. Vercel Blob client-upload token
