@@ -513,15 +513,27 @@ app.delete("/api/certificates/:certNumber", async (req, res) => {
   }
 });
 
-// Vite middleware for development
-if (process.env.NODE_ENV !== "production") {
+// Static assets / Vite dev middleware.
+// On Vercel the SPA is served from the static build output, so skip this block
+// entirely: it would otherwise try to serve files that are not part of the
+// serverless function bundle.
+//
+// The dev bootstrap avoids top-level await so this module stays compatible
+// with Vercel's function compiler even if it emits CommonJS.
+if (!process.env.VERCEL && process.env.NODE_ENV !== "production") {
+  void bootstrapDevMiddleware();
+}
+
+async function bootstrapDevMiddleware() {
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: "spa"
   });
   app.use(vite.middlewares);
-} else {
+}
+
+if (!process.env.VERCEL && process.env.NODE_ENV === "production") {
   const publicDir = path.join(process.cwd(), "public");
   app.use(express.static(publicDir));
   app.get("*", (req, res) => {
