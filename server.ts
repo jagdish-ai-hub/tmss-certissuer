@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { createClient } from "@libsql/client";
+import { createClient, type Client } from "@libsql/client";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 interface Submission {
@@ -40,13 +40,48 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const TURSO_URL = process.env.TURSO_DATABASE_URL;
 const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN;
-const db = createClient(
-  TURSO_URL
-    ? TURSO_TOKEN
-      ? { url: TURSO_URL, authToken: TURSO_TOKEN }
-      : { url: TURSO_URL }
-    : { url: "file:local.db" }
-);
+
+/**
+ * On Vercel the filesystem is read-only, so the local "file:" fallback cannot
+ * work. Detect obvious misconfiguration up front so the API answers with a
+ * readable JSON error instead of crashing the serverless function (which the
+ * browser receives as an unparseable "A server error has occurred" page).
+ */
+function detectConfigError(): string | null {
+  if (!process.env.VERCEL) return null; // dev / docker: file fallback is fine
+
+  if (!TURSO_URL) {
+    return "TURSO_DATABASE_URL is not set. Add it under Settings -> Environment Variables (Production) and redeploy.";
+  }
+  if (!TURSO_TOKEN) {
+    return "TURSO_AUTH_TOKEN is not set. Add it under Settings -> Environment Variables (Production) and redeploy.";
+  }
+  if (!/^(libsql|https):\/\//.test(TURSO_URL)) {
+    return `TURSO_DATABASE_URL does not look like a Turso URL (should start with "libsql://"). Got: "${TURSO_URL.slice(0, 24)}"`;
+  }
+  if (!TURSO_TOKEN.startsWith("eyJ")) {
+    return `TURSO_AUTH_TOKEN does not look like a Turso token (should start with "eyJ"). Got: "${TURSO_TOKEN.slice(0, 6)}..."`;
+  }
+  return null;
+}
+
+let configError: string | null = detectConfigError();
+
+let db: Client;
+try {
+  db = configError
+    ? createClient({ url: "file::memory:" }) // placeholder, never queried
+    : createClient(
+        TURSO_URL
+          ? TURSO_TOKEN
+            ? { url: TURSO_URL, authToken: TURSO_TOKEN }
+            : { url: TURSO_URL }
+          : { url: "file:local.db" }
+      );
+} catch (error: any) {
+  configError = configError ?? `Failed to create the Turso client: ${error?.message ?? error}`;
+  db = createClient({ url: "file::memory:" });
+}
 
 const defaultSettings: Settings = {
   adminPasscode: "admin123",
@@ -76,6 +111,7 @@ const defaultSettings: Settings = {
 };
 
 const ready = (async () => {
+  if (configError) return; // nothing to initialise; the guard middleware reports it
   await db.execute(`
     CREATE TABLE IF NOT EXISTS submissions (
       id TEXT PRIMARY KEY,
@@ -203,6 +239,13 @@ async function readCertificates(): Promise<Certificate[]> {
 }
 
 app.use((req, res, next) => {
+  if (configError) {
+    return res.status(500).json({
+      error: "Server misconfigured",
+      detail: configError,
+      fix: "Set the environment variables in Vercel and redeploy."
+    });
+  }
   ready.then(() => next()).catch(next);
 });
 app.use(express.json({ limit: "2mb" }));
@@ -544,7 +587,10 @@ if (!process.env.VERCEL && process.env.NODE_ENV === "production") {
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error("Unhandled error:", err);
   if (res.headersSent) return next(err);
-  res.status(500).json({ error: "Internal server error" });
+  res.status(500).json({
+    error: "Internal server error",
+    detail: String(err?.message ?? err).slice(0, 300)
+  });
 });
 
 export default app;
