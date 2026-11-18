@@ -3,8 +3,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "public",
   "rewrites": [
-    { "source": "/ping", "destination": "/api/ping" },
-    { "source": "/diag", "destination": "/api/diag" },
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
