@@ -13,7 +13,9 @@ export default defineConfig(({mode}) => {
       emptyOutDir: true,
     },
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      // Fall back to an empty string: JSON.stringify(undefined) is undefined,
+      // which Vite's define plugin can reject during a production build.
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY ?? ''),
     },
     resolve: {
       alias: {
